@@ -1,0 +1,61 @@
+import numpy as np
+import pandas as pd
+from arch import arch_model
+from data_loader import load_data
+
+# load prices and log returns
+prices, returns = load_data()
+
+# fit GARCH(1,1) to AAPL returns to test model specification before applying to full portfolio
+AAPL = returns['AAPL']
+model = arch_model(AAPL, vol='Garch', p=1, q=1)
+result = model.fit()
+print(result.summary())
+print(result.conditional_volatility)
+
+# calcualting equally weighted portfolio returns
+n_assets = returns.shape[1]
+weights = np.ones(n_assets)/n_assets
+portfolio_returns = returns @ weights
+
+# fit GARCH(1,1) model to portfolio returns to estimate time-varying volatility
+model = arch_model(portfolio_returns, vol='Garch', p=1, q=1)
+result = model.fit()
+print(result.summary())
+
+# extract and plot conditional volatility over time
+import matplotlib.pyplot as plt
+conditional_vol = result.conditional_volatility
+plt.figure(figsize=(12, 6))
+plt.plot(returns.index, conditional_vol, color='steelblue', linewidth=0.8)
+plt.xlabel('Date')
+plt.ylabel('Conditional Volatility')
+plt.title('GARCH(1,1) Conditional Volatility of Equally Weighted Portfolio')
+plt.savefig('figures/GARCH_volatility.png')
+plt.show()
+
+
+# Calculate dynamic GARCH-based VaR
+from scipy.stats import norm
+# calculating 99% VaR z-score
+z_score = norm.ppf(0.01)
+mu = portfolio_returns.mean()
+garch_var = mu + z_score * conditional_vol
+
+# Dynamic GARCH VaR adjusts daily based on conditional volatility, unlike historical VaR which remains fixed demonstrating the superiority of time-varying risk models
+alpha = 0.99
+VaR_hist = -np.percentile(portfolio_returns, (1 - alpha) * 100)
+plt.figure(figsize=(12, 6))
+plt.plot(returns.index, garch_var, color='red', linewidth=1, label='GARCH VaR 99% (Dynamic)')
+plt.axhline(-VaR_hist, color='orange', linestyle='--', label=f'Historical VaR 99% ({-VaR_hist:.4f})')
+plt.xlabel('Date')
+plt.ylabel('Daily VaR')
+plt.title('Dynamic GARCH VaR vs Historical VaR (99%)')
+plt.legend(loc='upper right')
+plt.savefig('figures/GARCH_var_vs_historical.png')
+plt.show()
+
+calm = garch_var['2014':'2019']
+crisis = garch_var['2020']
+print(f"Average GARCH VaR (calm 2014-2019): {calm.mean():.4f}")
+print(f"Average GARCH VaR (crisis 2020): {crisis.mean():.4f}")
